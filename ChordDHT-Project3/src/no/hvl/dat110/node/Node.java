@@ -14,6 +14,7 @@ import java.math.BigInteger;
 //import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.rmi.AccessException;
+import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
@@ -26,10 +27,11 @@ import java.util.Map;
 import java.util.Set;
 
 import no.hvl.dat110.rpc.interfaces.ChordNodeInterface;
+import no.hvl.dat110.rpc.interfaces.MutexInterface;
 import no.hvl.dat110.util.Hash;
 import no.hvl.dat110.util.Util;
 
-public class Node extends UnicastRemoteObject implements ChordNodeInterface {
+public class Node extends UnicastRemoteObject implements ChordNodeInterface, MutexInterface {
 	
 	/**
 	 * 
@@ -319,24 +321,38 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 	public Message onMessageReceived(Message message) throws RemoteException {
 		
 		// increment the local clock
-
+		incrementclock();
 		// Hint: for all the 3 cases, use Message to send GRANT or DENY. e.g. message.setAcknowledgement(true) = GRANT
 		
 		/**
 		 *  case 1: Receiver is not accessing shared resource and does not want to: GRANT, acquirelock and reply
 		 */
-		
+		if(!CS_BUSY && !WANTS_TO_ENTER_CS) {
+			message.setAcknowledged(true);
+			return message;
+		}
 		
 		/**
 		 *  case 2: Receiver already has access to the resource: DENY and reply
 		 */
-		
+		else if(CS_BUSY) {
+			message.setAcknowledged(false);
+			return message;
+		}
 		
 		/**
 		 *  case 3: Receiver wants to access resource but is yet to (compare own multicast message to received message
 		 *  the message with lower timestamp wins) - GRANT if received is lower, acquirelock and reply
 		 */		
-		
+		else if(WANTS_TO_ENTER_CS) {
+			if(counter < message.getClock()) {
+				message.setAcknowledged(false);
+				return message;
+			}else {
+				message.setAcknowledged(true);
+				return message;
+			}
+		}
 		
 		return null;
 		
@@ -348,11 +364,17 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 		// count the number of yes (i.e. where message.isAcknowledged = true)
 		// check if it is the majority or not
 		// return the decision (true or false)
-
-						
-						
-						
-		return false;			// change this to the result of the vote
+		int ackCounter = 0;
+		for(Message s: queueACK) {
+			if(s.isAcknowledged()) {
+				ackCounter++;
+			}
+		}
+		if(ackCounter > queueACK.size()/2) {
+			return true;
+		}else {
+			return false;
+		}
 	}
 
 	@Override
@@ -367,7 +389,9 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 		
 		// release CS lock if voter initiator says he was denied access bcos he lacks majority votes
 		// otherwise lock is kept
-
+		if(message.isAcknowledged()) {
+			releaseLocks();
+		}
 	}
 
 	@Override
@@ -391,7 +415,19 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface {
 	public void multicastVotersDecision(Message message) throws RemoteException {	
 		
 		// multicast voters decision to the rest of the replicas (i.e activenodesforfile)
-
+		for(Message s: activenodesforfile) {
+			String nodeip = s.getNodeIP();
+			String nodeid = s.getNodeID().toString();
+			
+			try {
+				Registry registry = Util.locateRegistry(nodeip);
+				ChordNodeInterface node = (ChordNodeInterface) registry.lookup(nodeid);
+				
+				node.onReceivedVotersDecision(message);
+			}catch(NotBoundException e) {
+				e.printStackTrace();
+			}
+		}
 
 	}
 
