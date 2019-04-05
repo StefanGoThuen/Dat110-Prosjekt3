@@ -312,10 +312,28 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface, Mut
 	// multicast message to N/2 + 1 processes (random processes)
 	private boolean multicastMessage(Message message) throws AccessException, RemoteException {
 		
-		// the same as MutexProcess - see MutexProcess
-		
-		return false;
-	}
+		// randomize - shuffle list each time - to get random processes each time
+				List<Message> list = new ArrayList<>(activenodesforfile);
+				Collections.shuffle(list);
+				// multicast message to N/2 + 1 processes (random processes) - block until feedback is received
+				quorum = list.size()/(2 + 1);
+				synchronized (queueACK){
+					for (int i = 0; i < quorum; i++) {
+						try {
+							Registry reg = Util.locateRegistry(list.get(i).getNodeIP());
+							ChordNodeInterface node = (ChordNodeInterface) reg.lookup(list.get(i).toString());
+							queueACK.add(node.onMessageReceived(message));
+						}catch (NotBoundException e){
+							e.printStackTrace();
+						}
+					}
+				}
+
+				// compute election result - Idea call majorityAcknowledged()
+				boolean result = majorityAcknowledged();
+
+				return result; // change to the election result		
+			}
 	
 	@Override
 	public Message onMessageReceived(Message message) throws RemoteException {
@@ -398,8 +416,18 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface, Mut
 	public void onReceivedUpdateOperation(Message message) throws RemoteException {
 		
 		// check the operation type: we expect a WRITE operation to do this. 
-		// perform operation by using the Operations class 
-		// Release locks after this operation
+				// perform operation by using the Operations class 
+				// Release locks after this operation
+				if (message.getOptype() == OperationType.WRITE) {
+					// perform operation by using the Operations class
+					Operations operation = new Operations(this, message, activenodesforfile);
+					operation.performOperation();
+					// Release locks after this operation
+					releaseLocks();
+				}
+				else if (message.getOptype() == OperationType.READ) {
+					releaseLocks();
+				}
 		
 	}
 	
@@ -407,8 +435,15 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface, Mut
 	public void multicastUpdateOrReadReleaseLockOperation(Message message) throws RemoteException {
 		
 		// check the operation type:
-		// if this is a write operation, multicast the update to the rest of the replicas (voters)
-		// otherwise if this is a READ operation multicast releaselocks to the replicas (voters)
+				// if this is a write operation, multicast the update to the rest of the replicas (voters)
+				Operations op = new Operations(this, message, activenodesforfile);
+				if (message.getOptype() == OperationType.WRITE){
+					op.multicastOperationToReplicas(message);
+				}
+				// otherwise if this is a READ operation multicast releaselocks to the replicas (voters)
+				else {
+					op.multicastReadReleaseLocks();
+				}
 	}	
 	
 	@Override
