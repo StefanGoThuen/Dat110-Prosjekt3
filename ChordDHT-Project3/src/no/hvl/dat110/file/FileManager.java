@@ -30,12 +30,12 @@ public class FileManager extends Thread {
 	private BigInteger[] replicafiles; // array stores replicated files for distribution to matching nodes
 	private int nfiles = 4; // let's assume each node manages nfiles (5 for now) - can be changed from the
 							// constructor
-	private ChordNodeInterface chordnode;
+	private ChordNodeInterface node;
 
 	public FileManager(ChordNodeInterface chordnode, int N) throws RemoteException {
 		this.nfiles = N;
 		replicafiles = new BigInteger[N];
-		this.chordnode = chordnode;
+		this.node = chordnode;
 	}
 
 	public void run() {
@@ -69,13 +69,13 @@ public class FileManager extends Thread {
 
 		for (int i = 0; i < replicafiles.length; i++) {
 			BigInteger fileID = (BigInteger) replicafiles[i];
-			ChordNodeInterface succFileID = chordnode.findSuccessor(fileID);
+			ChordNodeInterface succFileID = node.findSuccessor(fileID);
 
 			// if we find the successor node of fileID, we can assign the file to the
 			// successor. This should always work even with one node
 			if (succFileID != null) {
 				succFileID.addToFileKey(fileID);
-				String initialcontent = chordnode.getNodeIP() + "\n" + chordnode.getNodeID();
+				String initialcontent = node.getNodeIP() + "\n" + node.getNodeID();
 				succFileID.createFileInNodeLocalDirectory(initialcontent, fileID); // copy the file to the successor
 																						// local dir
 			}
@@ -94,7 +94,7 @@ public class FileManager extends Thread {
 		createReplicaFiles(filename);
 		for (int i = 0; i < replicafiles.length; i++) {
 			BigInteger fileID = replicafiles[i];
-			ChordNodeInterface successorFileID = chordnode.findSuccessor(fileID);
+			ChordNodeInterface successorFileID = node.findSuccessor(fileID);
 			if (successorFileID != null) {
 				Map<BigInteger, Message> succMap = successorFileID.getFilesMetadata();
 				if (!checkDuplicateActiveNode(activeNodes, succMap.get(fileID))) {
@@ -125,17 +125,17 @@ public class FileManager extends Thread {
 		Registry registry = Util.locateRegistry(msg.getNodeIP());
 		ChordNodeInterface node = (ChordNodeInterface) registry.lookup(msg.getNodeID().toString());
 		node.setActiveNodesForFile(activeNodesWithReplicas);
-		chordnode.setActiveNodesForFile(activeNodesWithReplicas);
-		msg.setNodeIP(chordnode.getNodeIP());
-		boolean result = chordnode.requestReadOperation(msg);
+		node.setActiveNodesForFile(activeNodesWithReplicas);
+		msg.setNodeIP(node.getNodeIP());
+		boolean result = node.requestReadOperation(msg);
 		msg.setAcknowledged(result);
-		chordnode.multicastVotersDecision(msg);
+		node.multicastVotersDecision(msg);
 		if (msg.isAcknowledged()) {
-			chordnode.acquireLock();
-			Operations op = new Operations(chordnode, msg, activeNodesWithReplicas);
+			node.acquireLock();
+			Operations op = new Operations(node, msg, activeNodesWithReplicas);
 			op.performOperation();
 			op.multicastReadReleaseLocks();
-			chordnode.releaseLocks();
+			node.releaseLocks();
 		}
 		return msg.isAcknowledged();
 	}
@@ -154,14 +154,14 @@ public class FileManager extends Thread {
 		message.setOptype(OperationType.READ);
 		message.setNewcontent(newcontent);
 		node.setActiveNodesForFile(activeNodes);
-		message.setNodeIP(chordnode.getNodeIP());
-		boolean result = chordnode.requestWriteOperation(message);
+		message.setNodeIP(node.getNodeIP());
+		boolean result = node.requestWriteOperation(message);
 		message.setAcknowledged(result);
-		chordnode.multicastVotersDecision(message);
+		node.multicastVotersDecision(message);
 		if (message.isAcknowledged()) {
-			chordnode.acquireLock();
-			chordnode.incrementclock();
-			Operations op = new Operations(chordnode, message, activeNodes);
+			node.acquireLock();
+			node.incrementclock();
+			Operations op = new Operations(node, message, activeNodes);
 			op.performOperation();
 			try {
 				distributeReplicaFiles();
@@ -169,7 +169,7 @@ public class FileManager extends Thread {
 				e.printStackTrace();
 			}
 			op.multicastReadReleaseLocks();
-			chordnode.releaseLocks();
+			node.releaseLocks();
 		}
 
 		return message.isAcknowledged();
@@ -183,7 +183,7 @@ public class FileManager extends Thread {
 	 * @throws RemoteException
 	 */
 	public void createLocalFile() throws RemoteException {
-		String nodename = chordnode.getNodeIP();
+		String nodename = node.getNodeIP();
 		String path = new File(".").getAbsolutePath().replace(".", "");
 		File fpath = new File(path + "/" + nodename); // we'll have ../../nodename/
 		if (!fpath.exists()) {
@@ -208,9 +208,9 @@ public class FileManager extends Thread {
 
 		try {
 			BufferedWriter bw = new BufferedWriter(new FileWriter(file, true));
-			bw.write(chordnode.getNodeIP());
+			bw.write(node.getNodeIP());
 			bw.newLine();
-			bw.write(chordnode.getNodeID().toString());
+			bw.write(node.getNodeID().toString());
 			bw.close();
 
 		} catch (IOException e) {

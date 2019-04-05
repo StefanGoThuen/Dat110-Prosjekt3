@@ -321,8 +321,7 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface, Mut
 					for (int i = 0; i < quorum; i++) {
 						try {
 							Registry reg = Util.locateRegistry(list.get(i).getNodeIP());
-							ChordNodeInterface node = (ChordNodeInterface) reg.lookup(list.get(i).toString());
-							queueACK.add(node.onMessageReceived(message));
+							ChordNodeInterface node = (ChordNodeInterface) reg.lookup(list.get(i).getNodeID().toString());							queueACK.add(node.onMessageReceived(message));
 						}catch (NotBoundException e){
 							e.printStackTrace();
 						}
@@ -450,9 +449,10 @@ public class Node extends UnicastRemoteObject implements ChordNodeInterface, Mut
 	public void multicastVotersDecision(Message message) throws RemoteException {	
 		
 		// multicast voters decision to the rest of the replicas (i.e activenodesforfile)
-		for(Message s: activenodesforfile) {
-			String nodeip = s.getNodeIP();
-			String nodeid = s.getNodeID().toString();
+		ArrayList<Message> replicas = new ArrayList<Message>(activenodesforfile);
+		for(Message activenodes : replicas) {
+			String nodeip = activenodes.getNodeIP();
+			String nodeid = activenodes.getNodeID().toString();
 			
 			try {
 				Registry registry = Util.locateRegistry(nodeip);
