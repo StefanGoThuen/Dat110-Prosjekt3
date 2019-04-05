@@ -182,7 +182,6 @@ public void createReplicaFiles(String filename) {
 		if (message.isAcknowledged()){
 			// acquire lock to CS and also increments localclock
 			node.acquireLock();
-			node.incrementclock();
 			// perform operation by calling Operations class
 			Operations op = new Operations(node, message, activeNodes);
 			op.performOperation();
